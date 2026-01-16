@@ -1,31 +1,39 @@
 /**
- * 도미노 텍스트 애니메이션 메인 애플리케이션
+ * 도미노 텍스트 애니메이션 메인 애플리케이션 (완전 재작성 버전)
  */
 
 class DominoApp {
     constructor() {
+        console.log('DominoApp initializing...');
+
         // Three.js 기본 요소
         this.scene = null;
         this.camera = null;
         this.renderer = null;
+        this.controls = null;
 
-        // Cannon.js 물리 엔진
+        // Cannon-es 물리 엔진
         this.world = null;
         this.dominoBodies = [];
         this.dominoMeshes = [];
+        this.groundBody = null;
 
-        // 텍스트 변환기
+        // 유틸리티
         this.textConverter = new TextToDomino();
+        this.soundSystem = new SoundSystem();
 
         // 상태
         this.isAnimating = false;
         this.isFalling = false;
         this.cameraFollowEnabled = true;
         this.slowMotionEnabled = false;
+        this.currentText = '';
 
         // 카메라 추적
         this.cameraTarget = new THREE.Vector3();
+        this.cameraOffset = new THREE.Vector3(0, 20, 30);
         this.fallingDominoIndex = 0;
+        this.lastFallenIndex = -1;
 
         // UI 요소
         this.initUIElements();
@@ -34,6 +42,8 @@ class DominoApp {
         this.init();
         this.setupEventListeners();
         this.animate();
+
+        console.log('DominoApp initialized successfully!');
     }
 
     initUIElements() {
@@ -44,33 +54,39 @@ class DominoApp {
             resetBtn: document.getElementById('resetBtn'),
             cameraFollow: document.getElementById('cameraFollow'),
             slowMotion: document.getElementById('slowMotion'),
+            soundEnabled: document.getElementById('soundEnabled'),
             dominoCount: document.getElementById('dominoCount'),
             status: document.getElementById('status'),
-            loading: document.getElementById('loading')
+            loading: document.getElementById('loading'),
+            debugInfo: document.getElementById('debugInfo')
         };
     }
 
     init() {
+        console.log('Initializing scene...');
+
         // 씬 생성
         this.scene = new THREE.Scene();
-        this.scene.background = new THREE.Color(0xf0f4f8);
-        this.scene.fog = new THREE.Fog(0xf0f4f8, 50, 200);
+        this.scene.background = new THREE.Color(0xe0e7ff);
+        this.scene.fog = new THREE.Fog(0xe0e7ff, 50, 300);
 
         // 카메라 설정
         const container = document.getElementById('canvas-container');
         const width = container.clientWidth;
         const height = container.clientHeight;
 
-        this.camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
-        this.camera.position.set(0, 30, 50);
+        this.camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
+        this.camera.position.set(0, 25, 40);
         this.camera.lookAt(0, 0, 0);
 
         // 렌더러 설정
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
         this.renderer.setSize(width, height);
-        this.renderer.setPixelRatio(window.devicePixelRatio);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.0;
         container.appendChild(this.renderer.domElement);
 
         // 조명 설정
@@ -84,97 +100,116 @@ class DominoApp {
 
         // 윈도우 리사이즈 핸들러
         window.addEventListener('resize', () => this.onWindowResize());
+
+        console.log('Scene initialized');
     }
 
     setupLights() {
         // 환경광
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
         this.scene.add(ambientLight);
 
         // 방향광 (그림자 생성)
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        directionalLight.position.set(20, 40, 20);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+        directionalLight.position.set(30, 50, 30);
         directionalLight.castShadow = true;
-        directionalLight.shadow.camera.left = -50;
-        directionalLight.shadow.camera.right = 50;
-        directionalLight.shadow.camera.top = 50;
-        directionalLight.shadow.camera.bottom = -50;
+
+        // 그림자 맵 설정
+        directionalLight.shadow.camera.left = -60;
+        directionalLight.shadow.camera.right = 60;
+        directionalLight.shadow.camera.top = 60;
+        directionalLight.shadow.camera.bottom = -60;
+        directionalLight.shadow.camera.near = 0.1;
+        directionalLight.shadow.camera.far = 150;
         directionalLight.shadow.mapSize.width = 2048;
         directionalLight.shadow.mapSize.height = 2048;
+        directionalLight.shadow.bias = -0.0001;
+
         this.scene.add(directionalLight);
 
-        // 보조광
+        // 보조광 (채우기 조명)
         const fillLight = new THREE.DirectionalLight(0x88ccff, 0.3);
-        fillLight.position.set(-20, 20, -20);
+        fillLight.position.set(-30, 20, -30);
         this.scene.add(fillLight);
+
+        // 반사광 (바닥에서 올라오는 빛)
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.4);
+        this.scene.add(hemiLight);
     }
 
     createGround() {
         // 바닥 메시
-        const groundGeometry = new THREE.PlaneGeometry(200, 200);
+        const groundGeometry = new THREE.PlaneGeometry(300, 300);
         const groundMaterial = new THREE.MeshStandardMaterial({
-            color: 0xe8eef5,
-            roughness: 0.8,
-            metalness: 0.2
+            color: 0xf0f4f8,
+            roughness: 0.9,
+            metalness: 0.1
         });
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
         ground.rotation.x = -Math.PI / 2;
         ground.receiveShadow = true;
         this.scene.add(ground);
 
-        // 그리드 헬퍼
-        const gridHelper = new THREE.GridHelper(200, 50, 0xccddee, 0xddeeee);
+        // 그리드
+        const gridHelper = new THREE.GridHelper(300, 60, 0xccddee, 0xe0e7ff);
         gridHelper.position.y = 0.01;
         this.scene.add(gridHelper);
-
-        // 물리 바닥
-        const groundShape = new CANNON.Plane();
-        const groundBody = new CANNON.Body({
-            mass: 0,
-            shape: groundShape
-        });
-        groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
-        this.world.addBody(groundBody);
     }
 
     initPhysics() {
-        // Cannon.js 월드 생성
-        this.world = new CANNON.World();
-        this.world.gravity.set(0, -30, 0); // 중력
+        console.log('Initializing physics...');
+
+        // Cannon-es 월드 생성
+        this.world = new CANNON.World({
+            gravity: new CANNON.Vec3(0, -40, 0)
+        });
+
         this.world.broadphase = new CANNON.NaiveBroadphase();
-        this.world.solver.iterations = 10;
+        this.world.solver.iterations = 20;
         this.world.defaultContactMaterial.friction = 0.4;
-        this.world.defaultContactMaterial.restitution = 0.3;
+        this.world.defaultContactMaterial.restitution = 0.2;
+
+        // 바닥 물리 바디
+        const groundShape = new CANNON.Plane();
+        this.groundBody = new CANNON.Body({
+            mass: 0,
+            shape: groundShape
+        });
+        this.groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+        this.world.addBody(this.groundBody);
+
+        console.log('Physics initialized');
     }
 
-    createDomino(position, index) {
-        const width = 0.3;
-        const height = 2;
-        const depth = 1;
+    createDomino(position, rotation, index) {
+        const width = 0.4;
+        const height = 3;
+        const depth = 1.5;
 
         // Three.js 메시
         const geometry = new THREE.BoxGeometry(width, height, depth);
         const material = new THREE.MeshStandardMaterial({
             color: this.getDominoColor(index),
-            roughness: 0.5,
-            metalness: 0.1
+            roughness: 0.6,
+            metalness: 0.2
         });
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.copy(position);
-        mesh.position.y = height / 2;
+        mesh.position.set(position.x, position.y + height / 2, position.z);
+        mesh.rotation.y = rotation;
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         this.scene.add(mesh);
 
-        // Cannon.js 바디
+        // Cannon-es 바디
         const shape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, depth / 2));
         const body = new CANNON.Body({
-            mass: 1,
+            mass: 1.5,
             shape: shape,
-            material: new CANNON.Material()
+            linearDamping: 0.3,
+            angularDamping: 0.3
         });
-        body.position.copy(position);
-        body.position.y = height / 2;
+        body.position.set(position.x, position.y + height / 2, position.z);
+        body.quaternion.setFromEuler(0, rotation, 0);
         this.world.addBody(body);
 
         this.dominoMeshes.push(mesh);
@@ -184,13 +219,12 @@ class DominoApp {
     }
 
     getDominoColor(index) {
-        // 그라디언트 색상
         const colors = [
-            0x667eea, // 보라-파랑
-            0x764ba2, // 보라
             0x6366f1, // 인디고
-            0x8b5cf6, // 퍼플
-            0xa78bfa  // 연보라
+            0x8b5cf6, // 바이올렛
+            0xa78bfa, // 퍼플
+            0x7c3aed, // 퍼플(진함)
+            0x6d28d9  // 퍼플(더 진함)
         ];
         return colors[index % colors.length];
     }
@@ -201,102 +235,126 @@ class DominoApp {
             return;
         }
 
+        console.log(`Creating dominoes for text: "${text}"`);
+        this.currentText = text;
+
         this.showLoading(true);
         this.updateStatus('도미노 생성 중...');
+        this.soundSystem.playClick();
 
-        // 기존 도미노 제거
-        this.clearDominos();
-
-        // 약간의 딜레이 (UI 업데이트를 위해)
+        // UI 업데이트를 위한 짧은 딜레이
         await new Promise(resolve => setTimeout(resolve, 100));
 
         try {
+            // 기존 도미노 제거
+            this.clearDominos();
+
             // 텍스트를 도미노 좌표로 변환
-            const coordinates = this.textConverter.textToCoordinates(text, 48);
+            const coordinates = this.textConverter.textToCoordinates(text, 60);
 
             if (coordinates.length === 0) {
-                alert('도미노를 생성할 수 없습니다. 다른 텍스트를 입력해주세요.');
+                alert('도미노를 생성할 수 없습니다. 다른 텍스트를 시도해보세요.');
+                this.showLoading(false);
+                this.updateStatus('실패');
                 return;
             }
 
-            // 연결성 추가
-            const connectedCoords = this.textConverter.addConnections(coordinates);
+            // 간격 채우기
+            const filled = this.textConverter.fillGaps(coordinates, 3.5);
+
+            console.log(`Creating ${filled.length} dominoes...`);
 
             // 도미노 생성
-            connectedCoords.forEach((coord, index) => {
+            filled.forEach((coord, index) => {
                 this.createDomino(
-                    new THREE.Vector3(coord.x, coord.y, coord.z),
+                    new THREE.Vector3(coord.x, 0, coord.z),
+                    coord.rotation,
                     index
                 );
             });
 
-            // 통계 업데이트
-            const stats = this.textConverter.getStatistics(connectedCoords);
+            // 통계
+            const stats = this.textConverter.getStatistics(filled);
             this.updateDominoCount(stats.count);
 
-            // 카메라 위치 조정
+            // 디버그 정보
+            const debugInfo = this.textConverter.getDebugInfo(filled);
+            this.updateDebugInfo(debugInfo);
+
+            // 카메라 조정
             this.adjustCameraToFit(stats);
 
             // UI 업데이트
             this.elements.toppleBtn.disabled = false;
-            this.updateStatus('준비 완료');
+            this.updateStatus('준비 완료 ✓');
+            this.soundSystem.playSuccess();
+
+            console.log(`Successfully created ${stats.count} dominoes`);
 
         } catch (error) {
-            console.error('도미노 생성 오류:', error);
-            alert('도미노 생성 중 오류가 발생했습니다.');
+            console.error('Error creating dominoes:', error);
+            alert('도미노 생성 중 오류가 발생했습니다: ' + error.message);
+            this.updateStatus('오류 발생');
         } finally {
             this.showLoading(false);
         }
     }
 
     adjustCameraToFit(stats) {
-        const { center, bounds } = stats;
-        const width = bounds.maxX - bounds.minX;
-        const depth = bounds.maxZ - bounds.minZ;
-        const maxDim = Math.max(width, depth);
+        if (stats.count === 0) return;
 
-        // 카메라 거리 계산
-        const distance = maxDim * 1.5 + 30;
+        const { center, width, depth } = stats;
+        const maxDim = Math.max(width, depth, 20);
+
+        const distance = maxDim * 1.2 + 25;
+        const height = distance * 0.6;
 
         this.camera.position.set(
             center.x,
-            distance * 0.5,
+            height,
             center.z + distance
         );
         this.camera.lookAt(center.x, 0, center.z);
 
-        // 카메라 타겟 설정
         this.cameraTarget.set(center.x, 0, center.z);
+
+        console.log(`Camera adjusted to: (${center.x.toFixed(1)}, ${height.toFixed(1)}, ${(center.z + distance).toFixed(1)})`);
     }
 
     toppleDominos() {
         if (this.dominoBodies.length === 0) return;
 
+        console.log('Toppling dominoes...');
+
         this.isFalling = true;
         this.fallingDominoIndex = 0;
+        this.lastFallenIndex = -1;
         this.updateStatus('도미노 쓰러지는 중...');
         this.elements.toppleBtn.disabled = true;
+        this.soundSystem.playClick();
 
-        // 첫 번째 도미노에 힘을 가함
-        const firstDomino = this.dominoBodies[0];
-        const impulse = new CANNON.Vec3(0, 0, -8);
-        const worldPoint = new CANNON.Vec3(
-            firstDomino.position.x,
-            firstDomino.position.y + 1,
-            firstDomino.position.z
-        );
-        firstDomino.applyImpulse(impulse, worldPoint);
+        // 첫 번째 도미노에 강한 힘 적용
+        const firstBody = this.dominoBodies[0];
+        const pushForce = new CANNON.Vec3(0, 0, -15);
+        const pushPoint = new CANNON.Vec3(0, 1.5, 0.7);
+
+        firstBody.applyImpulse(pushForce, pushPoint);
+        this.soundSystem.playDominoFall(1.0, 1.0);
+
+        console.log('First domino pushed');
     }
 
     clearDominos() {
+        console.log('Clearing dominoes...');
+
         // Three.js 메시 제거
         this.dominoMeshes.forEach(mesh => {
             this.scene.remove(mesh);
-            mesh.geometry.dispose();
-            mesh.material.dispose();
+            if (mesh.geometry) mesh.geometry.dispose();
+            if (mesh.material) mesh.material.dispose();
         });
 
-        // Cannon.js 바디 제거
+        // Cannon-es 바디 제거
         this.dominoBodies.forEach(body => {
             this.world.removeBody(body);
         });
@@ -305,9 +363,12 @@ class DominoApp {
         this.dominoBodies = [];
         this.isFalling = false;
         this.fallingDominoIndex = 0;
+        this.lastFallenIndex = -1;
 
         this.updateDominoCount(0);
         this.elements.toppleBtn.disabled = true;
+
+        console.log('Dominoes cleared');
     }
 
     updatePhysics() {
@@ -326,47 +387,66 @@ class DominoApp {
             mesh.quaternion.copy(body.quaternion);
         }
 
-        // 카메라 추적
-        if (this.isFalling && this.cameraFollowEnabled) {
+        // 도미노 쓰러짐 감지 및 사운드
+        if (this.isFalling) {
+            this.detectFalling();
             this.updateCameraFollow();
         }
     }
 
-    updateCameraFollow() {
-        // 쓰러지고 있는 도미노 찾기
-        for (let i = this.fallingDominoIndex; i < this.dominoBodies.length; i++) {
+    detectFalling() {
+        for (let i = this.lastFallenIndex + 1; i < this.dominoBodies.length; i++) {
             const body = this.dominoBodies[i];
 
-            // 도미노가 기울어졌는지 확인
-            const angle = this.getDominoAngle(body);
-            if (angle > 0.3) { // 약 17도 이상 기울어짐
-                this.fallingDominoIndex = i;
-                break;
+            // 도미노가 기울어진 각도 계산
+            const angle = this.getDominoTiltAngle(body);
+
+            if (angle > 0.4) { // 약 23도 이상
+                if (i > this.lastFallenIndex) {
+                    this.lastFallenIndex = i;
+                    this.fallingDominoIndex = i;
+
+                    // 사운드 재생
+                    if (this.soundSystem.enabled) {
+                        this.soundSystem.playChain(i, this.dominoBodies.length);
+                    }
+
+                    console.log(`Domino ${i} fell`);
+                }
             }
-        }
-
-        // 현재 쓰러지고 있는 도미노 위치로 카메라 이동
-        if (this.fallingDominoIndex < this.dominoBodies.length) {
-            const targetBody = this.dominoBodies[this.fallingDominoIndex];
-            this.cameraTarget.lerp(
-                new THREE.Vector3(targetBody.position.x, targetBody.position.y, targetBody.position.z),
-                0.05
-            );
-
-            // 카메라 위치 부드럽게 이동
-            const offset = new THREE.Vector3(0, 15, 25);
-            const desiredPosition = this.cameraTarget.clone().add(offset);
-
-            this.camera.position.lerp(desiredPosition, 0.03);
-            this.camera.lookAt(this.cameraTarget);
         }
     }
 
-    getDominoAngle(body) {
-        // 쿼터니언을 오일러 각도로 변환
-        const euler = new CANNON.Vec3();
-        body.quaternion.toEuler(euler);
-        return Math.abs(euler.x) + Math.abs(euler.z);
+    getDominoTiltAngle(body) {
+        // 쿼터니언을 사용하여 기울기 계산
+        const up = new CANNON.Vec3(0, 1, 0);
+        const bodyUp = new CANNON.Vec3(0, 1, 0);
+        body.quaternion.vmult(bodyUp, bodyUp);
+
+        const dot = up.dot(bodyUp);
+        return Math.acos(Math.max(-1, Math.min(1, dot)));
+    }
+
+    updateCameraFollow() {
+        if (!this.cameraFollowEnabled) return;
+
+        if (this.fallingDominoIndex < this.dominoBodies.length) {
+            const targetBody = this.dominoBodies[this.fallingDominoIndex];
+
+            // 타겟 위치로 부드럽게 이동
+            const targetPos = new THREE.Vector3(
+                targetBody.position.x,
+                targetBody.position.y,
+                targetBody.position.z
+            );
+
+            this.cameraTarget.lerp(targetPos, 0.08);
+
+            // 카메라 위치 업데이트
+            const desiredPos = this.cameraTarget.clone().add(this.cameraOffset);
+            this.camera.position.lerp(desiredPos, 0.05);
+            this.camera.lookAt(this.cameraTarget);
+        }
     }
 
     animate() {
@@ -377,13 +457,13 @@ class DominoApp {
     }
 
     setupEventListeners() {
-        // 도미노 생성 버튼
+        // 도미노 생성
         this.elements.createBtn.addEventListener('click', () => {
             const text = this.elements.textInput.value.trim();
             this.createDominosFromText(text);
         });
 
-        // 엔터 키로도 생성
+        // 엔터 키
         this.elements.textInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 const text = this.elements.textInput.value.trim();
@@ -391,30 +471,37 @@ class DominoApp {
             }
         });
 
-        // 도미노 쓰러뜨리기 버튼
+        // 쓰러뜨리기
         this.elements.toppleBtn.addEventListener('click', () => {
             this.toppleDominos();
         });
 
-        // 초기화 버튼
+        // 초기화
         this.elements.resetBtn.addEventListener('click', () => {
+            this.soundSystem.playClick();
             this.clearDominos();
-            this.elements.textInput.value = '';
+            this.elements.textInput.value = '안녕';
             this.updateStatus('대기 중');
+            this.updateDebugInfo('초기화됨');
 
-            // 카메라 초기 위치로
-            this.camera.position.set(0, 30, 50);
+            // 카메라 초기 위치
+            this.camera.position.set(0, 25, 40);
             this.camera.lookAt(0, 0, 0);
         });
 
-        // 카메라 추적 토글
+        // 설정
         this.elements.cameraFollow.addEventListener('change', (e) => {
             this.cameraFollowEnabled = e.target.checked;
+            console.log('Camera follow:', this.cameraFollowEnabled);
         });
 
-        // 슬로우 모션 토글
         this.elements.slowMotion.addEventListener('change', (e) => {
             this.slowMotionEnabled = e.target.checked;
+            console.log('Slow motion:', this.slowMotionEnabled);
+        });
+
+        this.elements.soundEnabled.addEventListener('change', (e) => {
+            this.soundSystem.setEnabled(e.target.checked);
         });
     }
 
@@ -428,13 +515,17 @@ class DominoApp {
         this.renderer.setSize(width, height);
     }
 
-    // UI 업데이트 메서드
+    // UI 업데이트
     updateDominoCount(count) {
         this.elements.dominoCount.textContent = count;
     }
 
     updateStatus(status) {
         this.elements.status.textContent = status;
+    }
+
+    updateDebugInfo(info) {
+        this.elements.debugInfo.textContent = info;
     }
 
     showLoading(show) {
@@ -447,6 +538,19 @@ class DominoApp {
 }
 
 // 앱 초기화
-window.addEventListener('DOMContentLoaded', () => {
-    const app = new DominoApp();
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM loaded, initializing app...');
+
+    // 폰트 로딩 대기
+    if (document.fonts) {
+        document.fonts.ready.then(() => {
+            console.log('Fonts loaded');
+            const app = new DominoApp();
+            window.dominoApp = app; // 디버깅용
+        });
+    } else {
+        // 폰트 API 미지원 시 즉시 실행
+        const app = new DominoApp();
+        window.dominoApp = app;
+    }
 });

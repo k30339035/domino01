@@ -1,50 +1,67 @@
 /**
- * 텍스트를 도미노 좌표로 변환하는 유틸리티
+ * 텍스트를 도미노 좌표로 변환하는 유틸리티 (개선 버전)
  */
 class TextToDomino {
     constructor() {
         this.canvas = document.createElement('canvas');
-        this.ctx = this.canvas.getContext('2d');
-        this.dominoSpacing = 0.8; // 도미노 간격
+        this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
+        this.dominoSpacing = 1.0; // 도미노 간격
+        this.debug = true;
     }
 
     /**
      * 한글 텍스트를 도미노 좌표 배열로 변환
      * @param {string} text - 변환할 텍스트
-     * @param {number} resolution - 해상도 (높을수록 더 많은 도미노)
-     * @returns {Array} 도미노 좌표 배열 [{x, y, z}, ...]
+     * @param {number} fontSize - 폰트 크기
+     * @returns {Array} 도미노 좌표 배열 [{x, y, z, rotation}, ...]
      */
-    textToCoordinates(text, resolution = 32) {
+    textToCoordinates(text, fontSize = 60) {
         if (!text || text.trim().length === 0) {
+            console.warn('Empty text provided');
             return [];
         }
 
+        console.log(`Converting text: "${text}" with fontSize: ${fontSize}`);
+
+        // 폰트 설정
+        const fontWeight = 'bold';
+        const fontFamily = "'Noto Sans KR', Arial, sans-serif";
+        this.ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+        this.ctx.textBaseline = 'middle';
+        this.ctx.textAlign = 'left';
+
+        // 텍스트 크기 측정
+        const metrics = this.ctx.measureText(text);
+        const textWidth = Math.ceil(metrics.width);
+        const textHeight = fontSize * 1.5;
+
         // 캔버스 크기 설정
-        const fontSize = resolution;
-        const padding = Math.floor(fontSize * 0.3);
-
-        this.ctx.font = `bold ${fontSize}px "Noto Sans KR", Arial, sans-serif`;
-
-        // 텍스트 너비 측정
-        const textMetrics = this.ctx.measureText(text);
-        const textWidth = Math.ceil(textMetrics.width);
-        const textHeight = fontSize;
-
-        // 캔버스 크기 설정 (여백 포함)
+        const padding = Math.ceil(fontSize * 0.5);
         this.canvas.width = textWidth + padding * 2;
         this.canvas.height = textHeight + padding * 2;
 
-        // 배경 클리어
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        console.log(`Canvas size: ${this.canvas.width}x${this.canvas.height}`);
+
+        // 배경을 흰색으로
+        this.ctx.fillStyle = 'white';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
         // 텍스트 스타일 재설정 (캔버스 크기 변경 시 리셋됨)
-        this.ctx.font = `bold ${fontSize}px "Noto Sans KR", Arial, sans-serif`;
-        this.ctx.fillStyle = 'black';
-        this.ctx.textBaseline = 'top';
+        this.ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+        this.ctx.textBaseline = 'middle';
         this.ctx.textAlign = 'left';
+        this.ctx.fillStyle = 'black';
 
         // 텍스트 렌더링
-        this.ctx.fillText(text, padding, padding);
+        const x = padding;
+        const y = this.canvas.height / 2;
+        this.ctx.fillText(text, x, y);
+
+        // 디버그: 캔버스를 데이터 URL로 출력
+        if (this.debug) {
+            const dataUrl = this.canvas.toDataURL();
+            console.log('Canvas rendered. Preview:', dataUrl.substring(0, 100) + '...');
+        }
 
         // 픽셀 데이터 가져오기
         const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
@@ -52,160 +69,127 @@ class TextToDomino {
 
         // 픽셀을 도미노 좌표로 변환
         const coordinates = [];
-        const samplingRate = 2; // 픽셀 샘플링 비율 (높을수록 적은 도미노)
+        const samplingRate = Math.max(1, Math.floor(fontSize / 30)); // 동적 샘플링
 
+        console.log(`Sampling rate: ${samplingRate}`);
+
+        let pixelCount = 0;
         for (let y = 0; y < this.canvas.height; y += samplingRate) {
             for (let x = 0; x < this.canvas.width; x += samplingRate) {
                 const index = (y * this.canvas.width + x) * 4;
-                const alpha = pixels[index + 3];
+                const r = pixels[index];
+                const g = pixels[index + 1];
+                const b = pixels[index + 2];
+                const a = pixels[index + 3];
 
-                // 알파값이 임계값 이상이면 도미노 배치
-                if (alpha > 128) {
+                // 검은색 픽셀 감지 (텍스트 부분)
+                const brightness = (r + g + b) / 3;
+                if (a > 128 && brightness < 200) {
+                    pixelCount++;
+
+                    // 3D 좌표로 변환
+                    const worldX = (x - this.canvas.width / 2) * this.dominoSpacing * 0.15;
+                    const worldZ = (y - this.canvas.height / 2) * this.dominoSpacing * 0.15;
+
                     coordinates.push({
-                        x: (x - this.canvas.width / 2) * this.dominoSpacing,
+                        x: worldX,
                         y: 0,
-                        z: (y - this.canvas.height / 2) * this.dominoSpacing
+                        z: worldZ,
+                        rotation: 0
                     });
                 }
             }
         }
 
-        return this.optimizeDominoPath(coordinates);
+        console.log(`Detected ${pixelCount} pixels, created ${coordinates.length} coordinates`);
+
+        if (coordinates.length === 0) {
+            console.error('No coordinates generated! Check font rendering.');
+            return [];
+        }
+
+        // 좌표 최적화 (경로 정렬)
+        const optimized = this.optimizePath(coordinates);
+        console.log(`Optimized to ${optimized.length} dominoes`);
+
+        return optimized;
     }
 
     /**
-     * 도미노 좌표를 최적화하여 연쇄 반응이 잘 일어나도록 정렬
-     * @param {Array} coordinates - 원본 좌표 배열
-     * @returns {Array} 최적화된 좌표 배열
+     * 도미노 경로 최적화 - Z축 우선, 같은 행에서는 X축 정렬
      */
-    optimizeDominoPath(coordinates) {
+    optimizePath(coordinates) {
         if (coordinates.length === 0) return [];
 
-        // Z축 기준으로 정렬 (위에서 아래로)
-        // 같은 Z값이면 X축 기준 정렬 (왼쪽에서 오른쪽으로)
+        // Z축(위에서 아래), X축(왼쪽에서 오른쪽) 순서로 정렬
         coordinates.sort((a, b) => {
-            if (Math.abs(a.z - b.z) < 0.1) {
+            const zDiff = a.z - b.z;
+            if (Math.abs(zDiff) < 0.5) {
                 return a.x - b.x;
             }
-            return a.z - b.z;
+            return zDiff;
         });
 
-        return coordinates;
-    }
-
-    /**
-     * 도미노 경로에 연결선 추가 (빈 공간을 메우기 위한 추가 도미노)
-     * @param {Array} coordinates - 좌표 배열
-     * @returns {Array} 연결된 좌표 배열
-     */
-    addConnections(coordinates) {
-        const connected = [...coordinates];
-        const maxGap = 2.5; // 최대 허용 간격
-
+        // 각 도미노의 회전 계산 (다음 도미노를 향하도록)
         for (let i = 0; i < coordinates.length - 1; i++) {
             const current = coordinates[i];
             const next = coordinates[i + 1];
 
             const dx = next.x - current.x;
             const dz = next.z - current.z;
+
+            // 다음 도미노를 향한 각도 계산
+            current.rotation = Math.atan2(dx, dz);
+        }
+
+        // 마지막 도미노는 이전 도미노와 같은 방향
+        if (coordinates.length > 1) {
+            coordinates[coordinates.length - 1].rotation =
+                coordinates[coordinates.length - 2].rotation;
+        }
+
+        return coordinates;
+    }
+
+    /**
+     * 도미노 사이의 간격이 너무 크면 중간에 도미노 추가
+     */
+    fillGaps(coordinates, maxGap = 3.0) {
+        if (coordinates.length === 0) return coordinates;
+
+        const filled = [coordinates[0]];
+
+        for (let i = 1; i < coordinates.length; i++) {
+            const prev = coordinates[i - 1];
+            const current = coordinates[i];
+
+            const dx = current.x - prev.x;
+            const dz = current.z - prev.z;
             const distance = Math.sqrt(dx * dx + dz * dz);
 
-            // 간격이 너무 크면 중간에 도미노 추가
             if (distance > maxGap) {
-                const steps = Math.ceil(distance / this.dominoSpacing);
+                // 중간에 도미노 추가
+                const steps = Math.ceil(distance / (maxGap * 0.7));
                 for (let step = 1; step < steps; step++) {
                     const t = step / steps;
-                    connected.push({
-                        x: current.x + dx * t,
+                    filled.push({
+                        x: prev.x + dx * t,
                         y: 0,
-                        z: current.z + dz * t
+                        z: prev.z + dz * t,
+                        rotation: Math.atan2(dx, dz)
                     });
                 }
             }
+
+            filled.push(current);
         }
 
-        return this.optimizeDominoPath(connected);
+        console.log(`Gap filling: ${coordinates.length} -> ${filled.length} dominoes`);
+        return filled;
     }
 
     /**
-     * 한글 자모 분해 (초성, 중성, 종성)
-     * @param {string} char - 한글 문자
-     * @returns {Object} {cho, jung, jong}
-     */
-    decomposeHangul(char) {
-        const code = char.charCodeAt(0);
-
-        // 한글 유니코드 범위 체크
-        if (code < 0xAC00 || code > 0xD7A3) {
-            return null;
-        }
-
-        const base = code - 0xAC00;
-        const cho = Math.floor(base / 588);
-        const jung = Math.floor((base % 588) / 28);
-        const jong = base % 28;
-
-        return { cho, jung, jong };
-    }
-
-    /**
-     * 텍스트의 각 글자를 개별적으로 도미노로 변환 (초성부터 완성까지 단계별)
-     * @param {string} text - 변환할 텍스트
-     * @param {number} resolution - 해상도
-     * @returns {Array} 단계별 도미노 데이터
-     */
-    textToStages(text, resolution = 32) {
-        const stages = [];
-        let offsetX = 0;
-
-        for (let i = 0; i < text.length; i++) {
-            const char = text[i];
-
-            // 각 글자를 도미노로 변환
-            const charCoords = this.textToCoordinates(char, resolution);
-
-            // X축 오프셋 적용
-            const adjustedCoords = charCoords.map(coord => ({
-                x: coord.x + offsetX,
-                y: coord.y,
-                z: coord.z
-            }));
-
-            stages.push({
-                char: char,
-                coordinates: adjustedCoords,
-                index: i
-            });
-
-            // 다음 글자를 위한 오프셋 계산
-            if (charCoords.length > 0) {
-                const maxX = Math.max(...charCoords.map(c => c.x));
-                offsetX = offsetX + maxX + resolution * this.dominoSpacing * 2;
-            }
-        }
-
-        return stages;
-    }
-
-    /**
-     * 여러 단계의 좌표를 하나로 병합
-     * @param {Array} stages - 단계별 데이터
-     * @returns {Array} 병합된 좌표 배열
-     */
-    mergeStages(stages) {
-        let allCoordinates = [];
-
-        stages.forEach(stage => {
-            allCoordinates = allCoordinates.concat(stage.coordinates);
-        });
-
-        return allCoordinates;
-    }
-
-    /**
-     * 도미노 통계 정보
-     * @param {Array} coordinates - 좌표 배열
-     * @returns {Object} 통계 정보
+     * 통계 정보
      */
     getStatistics(coordinates) {
         if (coordinates.length === 0) {
@@ -230,7 +214,23 @@ class TextToDomino {
             center: {
                 x: (minX + maxX) / 2,
                 z: (minZ + maxZ) / 2
-            }
+            },
+            width: maxX - minX,
+            depth: maxZ - minZ
         };
+    }
+
+    /**
+     * 디버그 정보 문자열 생성
+     */
+    getDebugInfo(coordinates) {
+        const stats = this.getStatistics(coordinates);
+        return `
+도미노 개수: ${stats.count}
+영역 크기: ${stats.width.toFixed(1)} x ${stats.depth.toFixed(1)}
+중심점: (${stats.center.x.toFixed(1)}, ${stats.center.z.toFixed(1)})
+범위 X: ${stats.bounds.minX.toFixed(1)} ~ ${stats.bounds.maxX.toFixed(1)}
+범위 Z: ${stats.bounds.minZ.toFixed(1)} ~ ${stats.bounds.maxZ.toFixed(1)}
+        `.trim();
     }
 }
