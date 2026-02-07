@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>도미노 텍스트 애니메이션</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- UI 컨트롤 패널 -->
+        <div class="control-panel">
+            <div class="panel-header">
+                <h1>🎯 도미노 텍스트</h1>
+                <p class="subtitle">글씨를 입력하고 도미노가 쓰러지는 것을 감상하세요</p>
+            </div>
+
+            <div class="input-section">
+                <label for="textInput">텍스트 입력</label>
+                <input
+                    type="text"
+                    id="textInput"
+                    placeholder="예: 안녕"
+                    maxlength="6"
+                    autocomplete="off"
+                    value="안녕"
+                />
+                <div class="input-hint">최대 6자까지 입력 가능합니다</div>
+            </div>
+
+            <div class="button-group">
+                <button id="createBtn" class="btn btn-primary">
+                    <span class="btn-icon">🎨</span>
+                    <span>도미노 생성</span>
+                </button>
+                <button id="toppleBtn" class="btn btn-secondary" disabled>
+                    <span class="btn-icon">🎬</span>
+                    <span>쓰러뜨리기</span>
+                </button>
+                <button id="resetBtn" class="btn btn-tertiary">
+                    <span class="btn-icon">🔄</span>
+                    <span>초기화</span>
+                </button>
+            </div>
+
+            <div class="settings-section">
+                <h3>설정</h3>
+                <div class="setting-item">
+                    <label>
+                        <input type="checkbox" id="cameraFollow" checked>
+                        <span>카메라 자동 추적</span>
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <label>
+                        <input type="checkbox" id="slowMotion">
+                        <span>슬로우 모션</span>
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <label>
+                        <input type="checkbox" id="soundEnabled" checked>
+                        <span>사운드 효과</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="info-section">
+                <div class="info-item">
+                    <span class="info-label">도미노 개수</span>
+                    <span class="info-value" id="dominoCount">0</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">상태</span>
+                    <span class="info-value" id="status">대기 중</span>
+                </div>
+            </div>
+
+            <div class="debug-section">
+                <details>
+                    <summary>디버그 정보</summary>
+                    <pre id="debugInfo">시스템 준비 완료</pre>
+                </details>
+            </div>
+        </div>
+
+        <!-- 3D 캔버스 -->
+        <div id="canvas-container"></div>
+
+        <!-- 로딩 인디케이터 -->
+        <div id="loading" class="loading hidden">
+            <div class="spinner"></div>
+            <p>도미노 생성 중...</p>
+        </div>
+    </div>
+
+    <!-- Three.js r158 (최신 안정화 버전) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+    <!-- Cannon-es (최신 ES6 버전) -->
+    <script src="https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"></script>
+    <!-- OrbitControls -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+
+    <!-- 애플리케이션 스크립트 -->
+    <script src="textToDomino.js"></script>
+    <script src="sounds.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
