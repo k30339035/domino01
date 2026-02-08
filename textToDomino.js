@@ -1,7 +1,7 @@
 /**
  * 텍스트를 도미노 좌표로 변환하는 유틸리티 (개선 버전)
  */
-class TextToDomino {
+export class TextToDomino {
     constructor() {
         this.canvas = document.createElement('canvas');
         this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });

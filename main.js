@@ -1,6 +1,10 @@
 /**
  * 도미노 텍스트 애니메이션 메인 애플리케이션 (완전 재작성 버전)
  */
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+import { TextToDomino } from './textToDomino.js';
+import { SoundSystem } from './sounds.js';
 
 class DominoApp {
     constructor() {

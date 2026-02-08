@@ -97,16 +97,17 @@
         </div>
     </div>
 
-    <!-- Three.js r158 (최신 안정화 버전) -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
-    <!-- Cannon-es (최신 ES6 버전) -->
-    <script src="https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"></script>
-    <!-- OrbitControls -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- ES Module Import Map -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+            "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+        }
+    }
+    </script>
 
-    <!-- 애플리케이션 스크립트 -->
-    <script src="textToDomino.js"></script>
-    <script src="sounds.js"></script>
-    <script src="main.js"></script>
+    <!-- 애플리케이션 스크립트 (ES Module) -->
+    <script type="module" src="main.js"></script>
 </body>
 </html>
