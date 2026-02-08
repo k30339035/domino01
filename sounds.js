@@ -1,7 +1,7 @@
 /**
  * Web Audio API 기반 사운드 시스템
  */
-class SoundSystem {
+export class SoundSystem {
     constructor() {
         this.audioContext = null;
         this.enabled = true;
